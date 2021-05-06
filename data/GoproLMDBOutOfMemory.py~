@@ -1,0 +1,201 @@
+## simulated dataset containing ground-truth deblurred.
+# Event3.mat
+import os, sys
+sys.path.append('/mnt/lustre/wangzhouxia/project/1_tmp_includetrain/data')
+sys.path.append('/mnt/lustre/wangzhouxia/project/1_tmp_includetrain/utils')
+# from data.dataset import DatasetBase
+# from data import transforms
+# from utils import cv_utils
+from dataset import DatasetBase
+import transforms
+# import cv_utils
+import numpy as np
+import zlib
+import scipy.io as scio
+import lmdb
+import csv
+import random
+
+class GoProLMDB(DatasetBase):
+    def __init__(self, opt, is_for_train):
+        super(GoProLMDB, self).__init__(opt, is_for_train)
+        self._name = 'GoProLMDB'
+        print('Loading GoProLMDB dataset...')
+        self.opt = opt
+        self.sequence_num = self.opt.sequence_num
+        self.inter_num = self.opt.inter_num
+
+        self.seed = 100
+
+        self._read_dataset_paths()
+        if self._is_for_train:
+            self._create_transform()
+
+    def _read_dataset_paths(self):
+        if self._is_for_train:
+            self.root = os.path.expanduser(self._opt.train_data_dir)
+            self.env = lmdb.open(self.root, max_dbs=100, map_size=int(1e12), max_readers=1024, readonly=True)
+            self.gt_data = self.env.open_db('gt'.encode())
+            self.blurred_data = self.env.open_db('blurred'.encode())
+            self.events_data = self.env.open_db('events'.encode())
+            self.lmdb_reader = self.env.begin()
+            #
+            csv_path = os.path.join(self.root, 'patch_names.csv')
+            csv_file = open(csv_path, mode='r')
+            csv_reader = csv.DictReader(csv_file)
+            self.name_list = [data['img_name'] for data in csv_reader]
+            #
+            datasize_path = '' # dataset namelist
+            datasize_file = open(datasize_path, mode='r')
+            datasize_header = csv.DictReader(datasize_file)
+            self.datasize_list = [0]
+            for data in datasize_header:
+                if data['TrainOrTest'] == 'Train':
+                    self.datasize_list.append(self.datasize_list[-1] + int(data['BlurDataSize']))
+            datasize_file.close()
+
+            if self.opt.toy:
+                self.selected_num = 250
+                self.selected_index = range(self.datasize_list[-1])
+
+        else:
+            self.root = os.path.expanduser(self._opt.test_data_dir)
+            self.paths = []
+            for subroot in sorted(os.listdir(self.root)):
+                imgroot = os.path.join(self.root, subroot)
+                self.paths.append(imgroot)
+
+            if self.opt.toy:
+                self.selected_num = 4
+                self.selected_index = range(len(self.paths))
+
+        if self.opt.toy:
+            random.seed(self.seed)
+            random.shuffle(self.selected_index)
+            self.selected_index = self.selected_index[:self.selected_num]
+            print(self.selected_index)
+
+
+    def __len__(self):
+        if self.opt.toy:
+            return self.selected_num * 4
+
+        if self._is_for_train:
+            return self.datasize_list[-1] * 4
+        else:
+            return len(self.paths) * 4
+
+    def _decode_image(self, img_buffer):
+        img_flat = np.frombuffer(img_buffer, dtype=np.uint8)
+        img = img_flat.reshape(-1, 360, 540)
+        return img
+
+    def _decode_event(self, event_buffer):
+        event_flat = zlib.decompress(event_buffer)
+        event_flat = np.fromstring(event_flat, dtype=np.uint8)
+        event = event_flat.reshape(-1, 360, 540)
+        return event
+
+    def __getitem__(self, index):
+        if self._is_for_train:
+            # TODO: how to record the self.name_list
+            dataidx = index // 4
+            patchidx = index % 4 + 1
+
+            if self.opt.toy:
+                t_index = self.selected_index[dataidx]
+                dataidx = t_index
+                
+            else:
+                t_index = dataidx
+            for i in range(1, len(self.datasize_list)):
+                if dataidx >= self.datasize_list[i]:
+                    t_index = t_index + 110
+                else:
+                    break
+
+            # blurred
+            blurreds = []
+            for i in range(self.sequence_num):
+                patchname_i = self.name_list[t_index+i * self.inter_num] + '_' + str(patchidx)
+                blurred = self.lmdb_reader.get(key=patchname_i.encode(), db=self.blurred_data)
+                blurred = self._decode_image(blurred)
+                blurreds.append(blurred)
+            blurreds = np.concatenate(blurreds, axis=0)
+            blurreds = blurreds.astype(np.float32) / 255.0
+
+            gts = []
+            events = []
+            for i in range(self.sequence_num * self.inter_num):
+                patchname_i = self.name_list[t_index+i] + '_' + str(patchidx)
+                # gts
+                gt = self.lmdb_reader.get(key=patchname_i.encode(), db=self.gt_data)
+                gt = self._decode_image(gt)
+                gts.append(gt)
+                # events
+                event = self.lmdb_reader.get(key=patchname_i.encode(), db=self.events_data)
+                event = self._decode_event(event)
+                events.append(event)
+            # gts
+            patchname_i = self.name_list[t_index + self.sequence_num * self.inter_num] + '_' + str(patchidx)
+            gt = self.lmdb_reader.get(key=patchname_i.encode(), db=self.gt_data)
+            gt = self._decode_image(gt)
+            gts.append(gt)
+            gts = np.concatenate(gts, axis=0)
+            gts = gts.astype(np.float32) / 255.0
+            # events
+            events = np.concatenate(events, axis=0)
+            events = events.astype(np.float32)
+            events = (events - 127) / 20.0
+
+            tensor_list = self.transforms([blurreds, gts, events])
+            sample = {'gts': tensor_list[1],
+                      'events': tensor_list[2],
+                      'blurred': tensor_list[0],
+                      'dataname': self.name_list[t_index]}
+        else:
+            patchidx = index % 4
+            dataidx = index // 4
+            mat = scio.loadmat(self.paths[dataidx])
+            blurreds = mat['blurred'].astype(np.float32) / 255.0
+            gts = mat['gts'].astype(np.float32) / 255.0
+            events = mat['events']
+            if len(events.shape) == 4:
+                events_list = np.split(events, events.shape[0], axis=0)
+                events = np.concatenate(events_list, axis=1)
+                events = events[0]
+            events = events.astype(np.float32)
+            events = (events - 127) / 20.0
+            path = self.paths[dataidx].split('/')[-1]
+            shape = gts.shape
+            if patchidx == 0:
+                gts = gts[:, :shape[1]//2, :shape[2]//2]
+                events = events[:, :shape[1]//2, :shape[2]//2]
+                blurreds = blurreds[:, :shape[1]//2, :shape[2]//2]
+            elif patchidx == 1:
+                gts = gts[:, :shape[1]//2, shape[2]//2:]
+                events = events[:, :shape[1]//2, shape[2]//2:]
+                blurreds = blurreds[:, :shape[1]//2, shape[2]//2:]
+            elif patchidx == 2:
+                gts = gts[:, shape[1]//2:, :shape[2]//2]
+                events = events[:, shape[1]//2:, :shape[2]//2]
+                blurreds = blurreds[:, shape[1]//2:, :shape[2]//2]
+            if patchidx == 3:
+                gts = gts[:, shape[1]//2:, shape[2]//2:]
+                events = events[:, shape[1]//2:, shape[2]//2:]
+                blurreds = blurreds[:, shape[1]//2:, shape[2]//2:]
+            sample = {'gts': gts,
+                      'events': events,
+                      'blurred': blurreds,
+                      'dataname': path}
+        return sample
+
+
+    def _create_transform(self):
+        print('Set Augmentation...')
+        self.transforms = transforms.Compose([
+            transforms.RandomCrop([self.opt.crop_height, self.opt.crop_width]),
+            transforms.RandomVerticalFlip(),
+            transforms.RandomHorizontalFlip()
+        ])
+

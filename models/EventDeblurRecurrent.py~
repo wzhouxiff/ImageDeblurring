@@ -1,0 +1,140 @@
+## input: event, blur and last sharp
+## output: delta L
+
+import torch
+from models import BaseModel
+from networks.networks import NetworksFactory
+from utils import cv_utils, criterion
+from collections import OrderedDict
+import os
+from time import time
+
+class Model(BaseModel):
+    def __init__(self, opt):
+        super(Model, self).__init__(opt)
+        self._name = 'EventDeblurRecurrent'
+        self.eventbins_between_frames = self._opt.eventbins_between_frames
+        self.inter_num = self._opt.inter_num
+        self._init_create_networks()
+        if self._opt.is_train:
+            self._init_train_vars()
+        self._init_train_inputs()
+        self._init_losses()
+        self.seqcount = 0
+
+    def _init_create_networks(self):
+        self._G = NetworksFactory.get_by_name('E2VIDRecurrent', \
+                                            input_size=self.eventbins_between_frames * self.inter_num + self._opt.channel)
+        print(self._G)
+        if len(self._opt.load_G) > 0:
+            self._load_network(self._G, self._opt.load_G)
+        else:
+            self._G.init_weights()
+        self._G.cuda()
+
+
+    def _init_train_vars(self):
+        self._current_lr_G = self._opt.lr_G
+        self._optimizer_G = torch.optim.Adam(self._G.parameters(), lr=self._current_lr_G,
+                                             betas=[self._opt.G_adam_b1, self._opt.G_adam_b2])
+
+    def _init_train_inputs(self):
+        self._input_gt = self._Tensor()
+        self._input_blurred = self._Tensor()
+        self._input_event = self._Tensor()
+
+    def _init_losses(self):
+        if self._opt.VerifyL2:
+            self.criterion_L1 = torch.nn.MSELoss().cuda()
+        else:
+            self.criterion_L1 = torch.nn.L1Loss().cuda()
+
+    def set_input(self, input):
+        self._input_gt.resize_(input['gts'].size()).copy_(input['gts'])
+        self._input_blurred.resize_(input['blurred'].size()).copy_(input['blurred'])
+        self._input_event.resize_(input['events'].size()).copy_(input['events'])
+
+        self._input_gt = self._input_gt.cuda()
+        self._input_blurred = self._input_blurred.cuda()
+        self._input_event = self._input_event.cuda()
+        self.dataname = input['dataname'][0]
+        self.imgcount = 0
+
+    def set_train(self):
+        self._G.train()
+        self._is_train = True
+
+    def set_eval(self):
+        self._G.eval()
+        self._is_train = False
+
+    def forward_test(self):
+        # Blur: len=10.
+        blur_list = torch.split(self._input_blurred, split_size_or_sections=self._opt.channel, dim=1)
+
+        self.last_state = None
+
+        self.loss_l1 = torch.zeros(1).cuda()
+        psnr_avg = 0.
+        ssim_avg = 0.
+        for blur_index in range(len(blur_list)):  # 4
+            self.blur_i = blur_list[blur_index]
+
+            self.event_cur = self._input_event[:, (blur_index * self.inter_num * self.eventbins_between_frames):
+                                                ((blur_index+1) * self.inter_num * self.eventbins_between_frames)]
+            
+            self.cur_reconstruction, self.last_state = self._G(torch.cat([self.blur_i, self.event_cur], dim=1), self.last_state)
+            
+            if self._opt.sequence_num == 1:
+                self.last_state = None
+
+            if not self._opt.qualitative:
+                
+                self.gt_sharp = self._input_gt[:,
+                                (blur_index * self.inter_num + self.inter_num // 2) * self._opt.channel
+                                :(blur_index * self.inter_num + self.inter_num // 2 + 1) * self._opt.channel]
+
+                final_psnr = criterion.psnr(self.cur_reconstruction, self.gt_sharp)
+                final_ssim = criterion.ssim(self.cur_reconstruction, self.gt_sharp)
+                psnr_avg += final_psnr
+                ssim_avg += final_ssim
+
+                path = os.path.join(self._opt.output_dir, self.dataname)
+                if not os.path.exists(path):
+                    os.makedirs(path)
+                path_i = os.path.join(path, str(self.imgcount+self.seqcount)+'ours'+str(final_psnr)+'_'+str(final_ssim)
+                                      + 'seq'+str(self.seqcount)+'.png')
+                cv_utils.debug_save_tensor(self.cur_reconstruction[0], path_i, rela=False, rgb=True)
+                path_g = os.path.join(path, str(self.imgcount+self.seqcount)+'_gt_seq'+str(self.seqcount)+'.png')
+                cv_utils.debug_save_tensor(self.gt_sharp[0], path_g, rela=False, rgb=True)
+                path_b = os.path.join(path, str(self.imgcount+self.seqcount)+'_blur_seq'+str(self.seqcount)+'.png')
+                cv_utils.debug_save_tensor(self.blur_i[0], path_b, rela=False, rgb=True)
+                self.imgcount = self.imgcount + self.inter_num
+            else:
+                if not self._opt.is_train:
+                    ############# final ############
+                    path = os.path.join('./OutputDeblurringInterpReal/ourinterp', self.dataname)
+                    if not os.path.exists(path):
+                        os.makedirs(path)
+                    path_i = os.path.join(path,
+                                          str(self.imgcount) + 'ourinterp.png')
+                    cv_utils.debug_save_tensor(self.est_sharp, path_i, rela=False, rgb=False)
+                    self.imgcount = self.imgcount + 6
+        self.seqcount = self.seqcount+1
+
+        return psnr_avg / len(blur_list), ssim_avg / len(blur_list)
+
+
+    def get_current_scalars(self):
+        ## evaluate:
+        if self._is_train:
+            loss_dict = OrderedDict([('L1', self.loss_l1.item()),
+                                     ('lr_G', self._current_lr_G)])
+        else:
+            final_psnr = criterion.psnr(self.cur_reconstruction, self.gt_sharp)
+            final_ssim = criterion.ssim(self.cur_reconstruction, self.gt_sharp)
+            loss_dict = OrderedDict([('psnr', final_psnr.item()),
+                                     ('ssim', final_ssim.item()),
+                                     ('L1', self.loss_l1.item())])
+        return loss_dict
+

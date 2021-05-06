@@ -1,0 +1,46 @@
+running clean
+removing 'build/temp.linux-x86_64-2.7' (and everything under it)
+running install
+running bdist_egg
+running egg_info
+writing kernelconv2d_cuda.egg-info/PKG-INFO
+writing top-level names to kernelconv2d_cuda.egg-info/top_level.txt
+writing dependency_links to kernelconv2d_cuda.egg-info/dependency_links.txt
+reading manifest file 'kernelconv2d_cuda.egg-info/SOURCES.txt'
+writing manifest file 'kernelconv2d_cuda.egg-info/SOURCES.txt'
+installing library code to build/bdist.linux-x86_64/egg
+running install_lib
+running build_ext
+building 'kernelconv2d_cuda' extension
+creating build/temp.linux-x86_64-2.7
+/mnt/lustre/wangzhouxia/env/gcc5/bin/gcc -fno-strict-aliasing -O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector-strong --param=ssp-buffer-size=4 -grecord-gcc-switches -m64 -mtune=generic -D_GNU_SOURCE -fPIC -fwrapv -DNDEBUG -O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector-strong --param=ssp-buffer-size=4 -grecord-gcc-switches -m64 -mtune=generic -D_GNU_SOURCE -fPIC -fwrapv -fPIC -I/mnt/lustre/wangzhouxia/project/fast-rcnn/venv/lib/python2.7/site-packages/torch/lib/include -I/mnt/lustre/wangzhouxia/project/fast-rcnn/venv/lib/python2.7/site-packages/torch/lib/include/TH -I/mnt/lustre/wangzhouxia/project/fast-rcnn/venv/lib/python2.7/site-packages/torch/lib/include/THC -I/usr/local/cuda/include -I/usr/include/python2.7 -c KernelConv2D_cuda.cpp -o build/temp.linux-x86_64-2.7/KernelConv2D_cuda.o -std=c++11 -DTORCH_EXTENSION_NAME=kernelconv2d_cuda -D_GLIBCXX_USE_CXX11_ABI=0
+/usr/local/cuda/bin/nvcc -I/mnt/lustre/wangzhouxia/project/fast-rcnn/venv/lib/python2.7/site-packages/torch/lib/include -I/mnt/lustre/wangzhouxia/project/fast-rcnn/venv/lib/python2.7/site-packages/torch/lib/include/TH -I/mnt/lustre/wangzhouxia/project/fast-rcnn/venv/lib/python2.7/site-packages/torch/lib/include/THC -I/usr/local/cuda/include -I/usr/include/python2.7 -c KernelConv2D_kernel.cu -o build/temp.linux-x86_64-2.7/KernelConv2D_kernel.o -gencode arch=compute_50,code=sm_50 -gencode arch=compute_52,code=sm_52 -gencode arch=compute_60,code=sm_60 -gencode arch=compute_61,code=sm_61 -DTORCH_EXTENSION_NAME=kernelconv2d_cuda -D_GLIBCXX_USE_CXX11_ABI=0 --compiler-options '-fPIC' -std=c++11
+/mnt/lustre/wangzhouxia/env/gcc5/bin/g++ -pthread -shared -Wl,-z,relro build/temp.linux-x86_64-2.7/KernelConv2D_cuda.o build/temp.linux-x86_64-2.7/KernelConv2D_kernel.o -L/usr/local/cuda/lib64 -L/usr/lib64 -lcudart -lpython2.7 -o build/lib.linux-x86_64-2.7/kernelconv2d_cuda.so
+creating build/bdist.linux-x86_64/egg
+copying build/lib.linux-x86_64-2.7/kernelconv2d_cuda.so -> build/bdist.linux-x86_64/egg
+creating stub loader for kernelconv2d_cuda.so
+byte-compiling build/bdist.linux-x86_64/egg/kernelconv2d_cuda.py to kernelconv2d_cuda.pyc
+creating build/bdist.linux-x86_64/egg/EGG-INFO
+copying kernelconv2d_cuda.egg-info/PKG-INFO -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying kernelconv2d_cuda.egg-info/SOURCES.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying kernelconv2d_cuda.egg-info/dependency_links.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying kernelconv2d_cuda.egg-info/top_level.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+writing build/bdist.linux-x86_64/egg/EGG-INFO/native_libs.txt
+zip_safe flag not set; analyzing archive contents...
+creating 'dist/kernelconv2d_cuda-0.0.0-py2.7-linux-x86_64.egg' and adding 'build/bdist.linux-x86_64/egg' to it
+removing 'build/bdist.linux-x86_64/egg' (and everything under it)
+Processing kernelconv2d_cuda-0.0.0-py2.7-linux-x86_64.egg
+Copying kernelconv2d_cuda-0.0.0-py2.7-linux-x86_64.egg to /mnt/lustre/wangzhouxia/project/fast-rcnn/venv/lib/python2.7/site-packages
+Adding kernelconv2d-cuda 0.0.0 to easy-install.pth file
+
+Installed /mnt/lustre/wangzhouxia/project/fast-rcnn/venv/lib/python2.7/site-packages/kernelconv2d_cuda-0.0.0-py2.7-linux-x86_64.egg
+Processing dependencies for kernelconv2d-cuda==0.0.0
+Finished processing dependencies for kernelconv2d-cuda==0.0.0
+
+
+gcc 5.4
+cuda 10.0
+/mnt/lustre/share/platform/dep/cuda-9.0-cudnn7.6/bin/nvcc
+
+export PATH=/mnt/lustre/share/gcc/gcc-5.3.0/bin:/mnt/lustre/share/platform/dep/cuda-9.0-cudnn7.6/bin:$PATH
+export PATH=/mnt/lustre/share/gcc/gcc-5.4/bin:/mnt/lustre/share/platform/dep/cuda-9.0-cudnn7.6/bin:$PATH
